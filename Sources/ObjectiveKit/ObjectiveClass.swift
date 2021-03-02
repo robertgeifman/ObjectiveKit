@@ -21,6 +21,9 @@ public extension ObjectiveClass {
 	init(_ instance: T) {
 		self.internalClass = T.classForCoder()
 	}
+	init(_ class: T.Type) {
+		self.internalClass = `class`
+	}
 	init(class internalClass: AnyClass) {
 		self.internalClass = internalClass
 	}

@@ -12,6 +12,7 @@ import FoundationAdditions
 public typealias ImplementationBlock = @convention(block) () -> Void
 public typealias ImplementationBlockObject = @convention(block) () -> NSObject
 public typealias ImplementationBlockObjectObject = @convention(block) (NSObject) -> NSObject
+public typealias ImplementationBlockObject_ = @convention(block) (NSObject) -> Void
 
 public protocol ObjectiveKitRuntimeModification {
 	var internalClass: AnyClass { get }
@@ -28,11 +29,15 @@ public protocol ObjectiveKitRuntimeModification {
 	@discardableResult
 	func addMethod(_ selectorName: String, implementation: @escaping ImplementationBlockObjectObject) -> Selector?
 	@discardableResult
+	func addOVMethod(_ selectorName: String, implementation: @escaping ImplementationBlockObject_) -> Selector?
+	@discardableResult
 	func addClassMethod(_ selectorName: String, implementation: @escaping ImplementationBlock) -> Selector?
 	@discardableResult
 	func addClassMethod(_ selectorName: String, implementation: @escaping ImplementationBlockObject) -> Selector?
 	@discardableResult
 	func addClassMethod(_ selectorName: String, implementation: @escaping ImplementationBlockObjectObject) -> Selector?
+	@discardableResult
+	func addClassMethod(_ selectorName: String, implementation: @escaping ImplementationBlockObject_) -> Selector?
 
 	/// Add a selector that is implemented on another object to the current class.
 	///
@@ -48,6 +53,7 @@ public protocol ObjectiveKitRuntimeModification {
 	///   - aSelector: Selector.
 	///   - otherSelector: Selector.
 	func exchangeSelector(_ aSelector: Selector, with otherSelector: Selector)
+	func exchangeStaticSelector(_ aSelector: Selector, with otherSelector: Selector)
 }
 
 public extension ObjectiveKitRuntimeModification {
@@ -75,6 +81,14 @@ public extension ObjectiveKitRuntimeModification {
 		let implementation = imp_implementationWithBlock(blockObject)
 		let selector = NSSelectorFromString(selectorName)
 		let encoding = "@@:@"
+		return class_addMethod(internalClass, selector, implementation, encoding) ? selector: nil
+	}
+	@discardableResult
+	func addOVMethod(_ selectorName: String, implementation: @escaping ImplementationBlockObject_) -> Selector? {
+		let blockObject = unsafeBitCast(implementation, to: AnyObject.self)
+		let implementation = imp_implementationWithBlock(blockObject)
+		let selector = NSSelectorFromString(selectorName)
+		let encoding = "@@:v"
 		return class_addMethod(internalClass, selector, implementation, encoding) ? selector: nil
 	}
 	@discardableResult
@@ -108,6 +122,17 @@ public extension ObjectiveKitRuntimeModification {
 		return class_addMethod(metaClass, selector, implementation, encoding) ? selector: nil
 	}
 	@discardableResult
+	func addClassMethod(_ selectorName: String, implementation: @escaping ImplementationBlockObject_) -> Selector? {
+		let className = class_getName(internalClass)
+		guard let metaClass = objc_getMetaClass(className) as? AnyClass else { runtimeError(in: self) }
+		let blockObject = unsafeBitCast(implementation, to: AnyObject.self)
+		let implementation = imp_implementationWithBlock(blockObject)
+		let selector = NSSelectorFromString(selectorName)
+		let encoding = "@@:v"
+		return class_addMethod(metaClass, selector, implementation, encoding) ? selector: nil
+	}
+	
+	@discardableResult
 	func addSelector(_ selector: Selector, from originalClass: AnyClass) -> Bool {
 		guard let method = class_getInstanceMethod(originalClass, selector),
 			let typeEncoding = method_getTypeEncoding(method) else {
@@ -117,9 +142,20 @@ public extension ObjectiveKitRuntimeModification {
 		let string = String(cString: typeEncoding)
 		return class_addMethod(internalClass, selector, implementation, string)
 	}
+	
 	func exchangeSelector(_ aSelector: Selector, with otherSelector: Selector) {
 		let method = class_getInstanceMethod(internalClass, aSelector).required
 		let otherMethod = class_getInstanceMethod(internalClass, otherSelector).required
+		method_exchangeImplementations(method, otherMethod)
+	}
+	
+	func exchangeStaticSelector(_ old: Selector, with new: Selector) {
+		let className = class_getName(internalClass)
+		guard let metaClass = objc_getMetaClass(className) as? AnyClass else { runtimeError(in: self) }
+
+//		let method = class_getClassMethod(internalClass, old).required
+		let method = class_getClassMethod(metaClass, old).required
+		let otherMethod = class_getClassMethod(metaClass, new).required
 		method_exchangeImplementations(method, otherMethod)
 	}
 }
